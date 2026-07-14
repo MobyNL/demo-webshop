@@ -82,20 +82,24 @@ if (document.readyState !== "loading") {
   document.addEventListener("DOMContentLoaded", renderBasketIndicator);
 }
 
-// Patch basket functions to update indicator
+// Patch basket functions to update indicator and trigger effects
 const origAddToBasket = window.addToBasket;
 window.addToBasket = function (product) {
   origAddToBasket(product);
   renderBasketIndicator();
+  if (window.triggerConfetti) window.triggerConfetti();
 };
 const origClearBasket = window.clearBasket;
 window.clearBasket = function () {
+  const hadItems = getBasket().length > 0;
   origClearBasket();
   renderBasketIndicator();
+  if (hadItems && window.triggerExplosion) window.triggerExplosion();
 };
 const origRemoveFromBasket = window.removeFromBasket;
 window.removeFromBasket = function (product) {
   const result = origRemoveFromBasket(product);
   renderBasketIndicator();
+  if (result && window.triggerExplosion) window.triggerExplosion();
   return result;
 };

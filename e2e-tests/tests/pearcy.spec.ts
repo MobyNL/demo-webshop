@@ -406,6 +406,74 @@ test("Pearcy places an order via the backend and clears the basket", async ({ pa
   });
 });
 
+test("a shopper completes a full shopping journey with Pearcy", async ({ page }) => {
+  const input = () => page.getByRole("textbox", { name: "Type your message to Pearcy" });
+  const send = () => page.getByRole("button", { name: "Send message" });
+  const log = page.getByRole("log", { name: "Conversation with Pearcy" });
+  const say = async (message: string) => {
+    await input().fill(message);
+    await send().click();
+  };
+
+  await test.step("Given a first-time shopper opens the chat on the homepage", async () => {
+    await page.goto("/");
+    await page.getByRole("button", { name: AVATAR }).click();
+  });
+
+  await test.step("When they ask for a recommendation, Pearcy suggests picks", async () => {
+    await say("what do you recommend?");
+    await expect(log).toContainText("pear-sonal picks", { timeout: 5000 });
+  });
+
+  await test.step("When they stock up on several fruits, Pearcy adds them", async () => {
+    await say("add two apples");
+    await expect(log).toContainText("×2", { timeout: 5000 });
+    await say("add a lemon");
+    await expect(log).toContainText("Lemon", { timeout: 5000 });
+  });
+
+  await test.step("When they ask what's in the basket, Pearcy lists all three items", async () => {
+    await say("what's in my basket?");
+    await expect(log).toContainText("3 items", { timeout: 5000 });
+    await expect(log).toContainText("Apple");
+    await expect(log).toContainText("Lemon");
+  });
+
+  await test.step("When they change their mind, Pearcy empties the basket", async () => {
+    await say("actually, empty my basket");
+    await expect(log).toContainText("squeaky-clean", { timeout: 5000 });
+  });
+
+  await test.step("Then the basket page confirms it is empty", async () => {
+    await page.goto("/basket.html");
+    await expect(page.getByRole("list", { name: "Shopping basket items" })).toHaveText(
+      "No products in basket."
+    );
+  });
+
+  await test.step("When they start fresh with a single banana", async () => {
+    await page.getByRole("button", { name: AVATAR }).click();
+    await say("add a banana");
+    await expect(log).toContainText("added", { timeout: 5000 });
+  });
+
+  await test.step("When they check out, Pearcy collects a name and address then places the order", async () => {
+    await say("checkout please");
+    await expect(log).toContainText("what name", { timeout: 5000 });
+    await say("Jamie");
+    await expect(log).toContainText("delivery address", { timeout: 5000 });
+    await say("10 Downing Street");
+    await expect(log).toContainText("Order placed", { timeout: 5000 });
+  });
+
+  await test.step("Then the basket is empty again after the order", async () => {
+    await page.goto("/basket.html");
+    await expect(page.getByRole("list", { name: "Shopping basket items" })).toHaveText(
+      "No products in basket."
+    );
+  });
+});
+
 test("the avatar can be dismissed and restored", async ({ page }) => {
   await test.step("Given the shopper is on the homepage", async () => {
     await page.goto("/");

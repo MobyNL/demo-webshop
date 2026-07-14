@@ -90,6 +90,7 @@
     </footer>
     <script src="shop.js"></script>
     <script src="pearcy.js"></script>
+    <script src="effects.js"></script>
     <script>
       renderBasket();
       document.getElementById("checkoutForm").onsubmit = function (e) {
@@ -98,6 +99,7 @@
         document.getElementById("checkoutForm").style.display = "none";
         clearBasket();
         renderBasket();
+        if (window.triggerConfetti) window.triggerConfetti();
       };
     </script>
   </body>
