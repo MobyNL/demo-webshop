@@ -37,7 +37,7 @@ const TOOLS = [
         type: "object",
         properties: {
           product: { type: "string", enum: ["apple", "banana", "lemon"] },
-          quantity: { type: "integer", minimum: 1, maximum: 9, description: "How many to add (default 1)." },
+          quantity: { type: "integer", minimum: 1, maximum: 100, description: "How many to add (default 1)." },
         },
         required: ["product"],
       },
@@ -52,7 +52,7 @@ const TOOLS = [
         type: "object",
         properties: {
           product: { type: "string", enum: ["apple", "banana", "lemon"] },
-          quantity: { type: "integer", minimum: 1, maximum: 9, description: "How many to remove (default 1)." },
+          quantity: { type: "integer", minimum: 1, maximum: 100, description: "How many to remove (default 1)." },
         },
         required: ["product"],
       },
@@ -78,7 +78,7 @@ function stripHtml(str) {
 function clampQty(q) {
   var n = parseInt(q, 10);
   if (isNaN(n) || n < 1) return 1;
-  return Math.min(9, n);
+  return Math.min(100, n);
 }
 
 function describeBasket(basket) {
