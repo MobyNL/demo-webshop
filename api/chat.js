@@ -22,7 +22,10 @@ const SYSTEM_PROMPT = [
   "Personality: warm, helpful, never pushy. You love a good fruit pun (\"pear-fect\", \"ap-peel-ing\", \"ripe for a chat\") but use them sparingly — at most one per reply. Occasionally add a 🍐.",
   "Keep replies short: 1-3 sentences.",
   "The shop sells exactly three products: Apple 🍏 (crisp, classic), Banana 🍌 (energy boost), Lemon 🍋 (zesty). Never invent other products or prices.",
-  "You can manage the shopper's basket using the provided tools (add, remove, clear). After changing the basket, confirm briefly what you did.",
+  "You can manage the shopper's basket using the provided tools (add, remove, clear).",
+  "Whenever the shopper asks to add, remove, or clear items, you MUST call the matching tool in THIS turn to actually make the change. Treat each request independently: if they ask to add apples again, add more apples even if you added some earlier in the conversation.",
+  "Never tell the shopper you added, removed, or cleared anything unless you called the tool for it in this same turn and the tool result came back ok. If a tool result reports ok:false, tell the shopper what went wrong instead of claiming success.",
+  "A system note each turn states the shopper's real current basket — trust it as the source of truth over anything said earlier in the conversation. After a successful basket change, confirm briefly what you did.",
   "You can place the shopper's order with the checkout tool once the basket is not empty and you have collected their full name and delivery address. If you don't have the name and address yet, ask for them first. This is a demo with no real payment, so just confirm the order warmly once it's placed.",
   "If a question is off-topic, gently steer back to fruit and how you can help them shop.",
 ].join(" ");
@@ -97,6 +100,16 @@ function clampQty(q) {
   return Math.min(100, n);
 }
 
+// Map whatever the model passed (e.g. "Apples", "lemon") to a catalog key, or
+// null if it isn't one of our products. Guards against silent no-ops when the
+// model doesn't echo the enum value exactly.
+function normalizeProduct(p) {
+  var key = String(p || "").trim().toLowerCase();
+  if (PRODUCTS[key]) return key;
+  if (key.slice(-1) === "s" && PRODUCTS[key.slice(0, -1)]) return key.slice(0, -1);
+  return null;
+}
+
 function describeBasket(basket) {
   if (!basket.length) return "empty";
   var counts = {};
@@ -123,15 +136,46 @@ function applyTool(toolCall, basket) {
   var name = toolCall.function && toolCall.function.name;
   var next = basket.slice();
 
-  if (name === "add_to_basket" && PRODUCTS[args.product]) {
-    var addN = clampQty(args.quantity);
-    for (var i = 0; i < addN; i++) next.push(args.product);
-  } else if (name === "remove_from_basket" && PRODUCTS[args.product]) {
-    var removeN = clampQty(args.quantity);
-    for (var j = 0; j < removeN; j++) {
-      var idx = next.indexOf(args.product);
-      if (idx !== -1) next.splice(idx, 1);
+  if (name === "add_to_basket") {
+    var addProduct = normalizeProduct(args.product);
+    if (!addProduct) {
+      return {
+        basket: next,
+        payload: { ok: false, error: "Unknown product '" + args.product + "'. Valid products are: apple, banana, lemon." },
+      };
     }
+    var addN = clampQty(args.quantity);
+    for (var i = 0; i < addN; i++) next.push(addProduct);
+    return {
+      basket: next,
+      payload: { ok: true, added: addN + "× " + PRODUCTS[addProduct].name, basket: describeBasket(next) },
+    };
+  } else if (name === "remove_from_basket") {
+    var removeProduct = normalizeProduct(args.product);
+    if (!removeProduct) {
+      return {
+        basket: next,
+        payload: { ok: false, error: "Unknown product '" + args.product + "'. Valid products are: apple, banana, lemon." },
+      };
+    }
+    var removeN = clampQty(args.quantity);
+    var removed = 0;
+    for (var j = 0; j < removeN; j++) {
+      var idx = next.indexOf(removeProduct);
+      if (idx === -1) break;
+      next.splice(idx, 1);
+      removed++;
+    }
+    if (removed === 0) {
+      return {
+        basket: next,
+        payload: { ok: false, error: "There are no " + PRODUCTS[removeProduct].name + " in the basket to remove.", basket: describeBasket(next) },
+      };
+    }
+    return {
+      basket: next,
+      payload: { ok: true, removed: removed + "× " + PRODUCTS[removeProduct].name, basket: describeBasket(next) },
+    };
   } else if (name === "clear_basket") {
     next = [];
   } else if (name === "checkout") {
@@ -183,7 +227,7 @@ async function callMistral(apiKey, messages) {
   return res.json();
 }
 
-module.exports = async function handler(req, res) {
+async function handler(req, res) {
   if (req.method !== "POST") {
     res.status(405).json({ error: "Method not allowed" });
     return;
@@ -267,4 +311,9 @@ module.exports = async function handler(req, res) {
   } catch (err) {
     res.status(502).json({ error: "Upstream error", detail: String((err && err.message) || err) });
   }
-};
+}
+
+module.exports = handler;
+// Exposed for unit testing; Vercel only ever invokes the default export.
+module.exports.applyTool = applyTool;
+module.exports.describeBasket = describeBasket;
