@@ -91,10 +91,8 @@ window.addToBasket = function (product) {
 };
 const origClearBasket = window.clearBasket;
 window.clearBasket = function () {
-  const hadItems = getBasket().length > 0;
   origClearBasket();
   renderBasketIndicator();
-  if (hadItems && window.triggerExplosion) window.triggerExplosion();
 };
 const origRemoveFromBasket = window.removeFromBasket;
 window.removeFromBasket = function (product) {

@@ -519,7 +519,10 @@
   // keep the header/basket page in sync, and celebrate if it grew.
   function syncBasket(nextBasket) {
     if (!Array.isArray(nextBasket)) return;
-    var grew = nextBasket.length > currentBasket().length;
+    var prevCount = currentBasket().length;
+    var nextCount = nextBasket.length;
+    var grew = nextCount > prevCount;
+    var shrank = nextCount < prevCount;
     try {
       localStorage.setItem("basket", JSON.stringify(nextBasket));
     } catch (e) {
@@ -527,7 +530,11 @@
     }
     if (typeof window.renderBasketIndicator === "function") window.renderBasketIndicator();
     if (typeof window.renderBasket === "function") window.renderBasket();
-    if (grew) celebrate();
+    if (grew) {
+      celebrate();
+      if (window.triggerConfetti) window.triggerConfetti();
+    }
+    if (shrank && window.triggerExplosion) window.triggerExplosion();
   }
 
   // Real LLM path. One fetch — the tool loop lives on the server.
@@ -549,7 +556,10 @@
           if (!text) throw new Error("Empty reply from backend");
           if (data && data.basket) syncBasket(data.basket);
           // A completed order (basket cleared server-side) is worth celebrating.
-          if (data && data.order) celebrate();
+          if (data && data.order) {
+            celebrate();
+            if (window.triggerConfetti) window.triggerConfetti();
+          }
           // Actions already applied via the returned basket.
           return { text: text, actions: [] };
         });
@@ -883,10 +893,12 @@
         window.removeFromBasket(a.product);
       } else if (a.type === "clear" && typeof window.clearBasket === "function") {
         window.clearBasket();
+        if (window.triggerExplosion) window.triggerExplosion();
       } else if (a.type === "checkout") {
         // Placing the order empties the basket (no real payment in this demo).
         if (typeof window.clearBasket === "function") window.clearBasket();
         celebrate();
+        if (window.triggerConfetti) window.triggerConfetti();
       }
     });
     // Refresh the basket list if the shopper is currently on the basket page.

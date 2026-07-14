@@ -77,8 +77,10 @@
     <script>
       renderBasket();
       document.getElementById("clearBasket").onclick = function () {
+        var hadItems = getBasket().length > 0;
         clearBasket();
         renderBasket();
+        if (hadItems && window.triggerExplosion) window.triggerExplosion();
       };
     </script>
   </body>
