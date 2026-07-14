@@ -353,3 +353,58 @@ footer a {
   color: green;
   margin-top: 1rem;
 }
+
+/* Googly eyes on the logo's strawberry — because everything's more fun with them. */
+.logo-img-wrap {
+  position: relative;
+  display: inline-block;
+  line-height: 0;
+  vertical-align: middle;
+}
+.googly-eyes {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.googly-eye {
+  position: absolute;
+  width: 12%;
+  height: 12%;
+  background: #fff;
+  border: 2px solid #1a1a1a;
+  border-radius: 50%;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.googly-eye--l {
+  left: 51%;
+  top: 25%;
+}
+.googly-eye--r {
+  left: 62%;
+  top: 25%;
+}
+.googly-pupil {
+  width: 45%;
+  height: 45%;
+  background: #1a1a1a;
+  border-radius: 50%;
+  transform-origin: center;
+  animation: logo-googly 2.6s ease-in-out infinite;
+}
+.googly-eye--r .googly-pupil {
+  animation-duration: 3.1s;
+}
+@keyframes logo-googly {
+  0%, 100% { transform: translate(20%, 28%); }
+  25% { transform: translate(-30%, -15%); }
+  50% { transform: translate(28%, 30%); }
+  75% { transform: translate(-20%, 12%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .googly-pupil {
+    animation: none;
+  }
+}

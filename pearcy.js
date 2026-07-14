@@ -19,6 +19,7 @@
     hidden: "pearcy:hidden", // user dismissed the avatar
     offline: "pearcy:offline", // force the offline fallback (used by tests)
     mock: "pearcy:mock", // use the local mock instead of the real backend
+    checkout: "pearcy:checkout", // in-progress checkout state (mock engine only)
   };
 
   var HISTORY_LIMIT = 50; // cap stored turns so localStorage stays small
@@ -139,6 +140,13 @@
     }
   }
 
+  // Escape user-provided text before it goes into a Pearcy (HTML) message.
+  function escapeHtml(str) {
+    return String(str).replace(/[&<>"']/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+    });
+  }
+
   // ---------------------------------------------------------------------------
   // Mock response engine
   //
@@ -213,7 +221,7 @@
         "• Suggest a pear-fect pick 🍐<br>" +
         "• Tell you about a fruit (try \"tell me about the lemon\")<br>" +
         "• Add or remove items for you (try \"add a banana\" or \"remove the apple\")<br>" +
-        "• Show you your basket or the way to checkout<br>" +
+        "• Check you out — just say \"checkout\" and I'll take it from there<br>" +
         "Just type away!"
       );
     }
@@ -410,10 +418,78 @@
     return null;
   }
 
-  // Full response: a basket action if one was requested, otherwise a chat reply.
+  // Multi-turn checkout, mock-engine style. Kept as a small state machine in
+  // localStorage so it works without a real LLM. (The Mistral path handles this
+  // conversationally via the `checkout` tool instead.)
+  function detectCheckoutIntent(text) {
+    return has(
+      text,
+      "checkout",
+      "check out",
+      "place order",
+      "place my order",
+      "complete order",
+      "complete my order",
+      "finish order",
+      "proceed to checkout",
+      "buy now",
+      "pay now",
+      "check me out"
+    );
+  }
+
+  function handleCheckoutFlow(rawMessage, text) {
+    var state = readJSON(STORAGE.checkout, null);
+    var wantsCancel = has(text, "cancel", "never mind", "nevermind", "stop", "abort");
+
+    if (state) {
+      if (wantsCancel) {
+        setFlag(STORAGE.checkout, false);
+        return { text: "No worries — I've paused the checkout. 🍐 Still here whenever you're ready!", actions: [] };
+      }
+      if (state.stage === "name") {
+        writeJSON(STORAGE.checkout, { stage: "address", name: rawMessage.trim() });
+        return {
+          text: "Thanks, " + escapeHtml(rawMessage.trim()) + "! And what's your delivery address? 🍐",
+          actions: [],
+        };
+      }
+      if (state.stage === "address") {
+        var name = state.name || "friend";
+        setFlag(STORAGE.checkout, false);
+        return {
+          text:
+            "Order placed — thank you, " + escapeHtml(name) + "! 🎉 Your fruit is on its way to " +
+            escapeHtml(rawMessage.trim()) + ". Enjoy every juicy bite! 🍐",
+          actions: [{ type: "checkout" }],
+        };
+      }
+    }
+
+    if (detectCheckoutIntent(text)) {
+      if (currentBasket().length === 0) {
+        return {
+          text:
+            "Your basket's empty, so there's nothing to check out yet! Add a fruit or two first — " +
+            'try "add a lemon". 🍐',
+          actions: [],
+        };
+      }
+      writeJSON(STORAGE.checkout, { stage: "name" });
+      return {
+        text: "Ooh, ready to check out? 🍐 Let's do it! First — what name should I put on the order?",
+        actions: [],
+      };
+    }
+    return null;
+  }
+
+  // Full response: checkout flow, then a basket action, else a chat reply.
   // Always returns { text, actions } so the UI has a single shape to handle.
   function mockRespond(message, history) {
     var text = String(message || "").toLowerCase();
+    var checkout = handleCheckoutFlow(message, text);
+    if (checkout) return checkout;
     var action = detectBasketAction(text);
     if (action) return action;
     return { text: mockReply(message, history), actions: [] };
@@ -460,18 +536,29 @@
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ message: message, history: history, basket: currentBasket() }),
-    })
-      .then(function (res) {
+    }).then(
+      function (res) {
+        // No endpoint here (e.g. plain static local dev, where http-server
+        // answers POSTs with 405) — degrade to the mock so the widget still
+        // works without a backend.
+        if (res.status === 404 || res.status === 405) return localReply(message, history);
+        // A real backend that errored (5xx/etc.) surfaces the graceful fallback.
         if (!res.ok) throw new Error("Pearcy backend error " + res.status);
-        return res.json();
-      })
-      .then(function (data) {
-        var text = (data && (data.reply || data.text)) || "";
-        if (!text) throw new Error("Empty reply from backend");
-        if (data && data.basket) syncBasket(data.basket);
-        // Actions already applied via the returned basket.
-        return { text: text, actions: [] };
-      });
+        return res.json().then(function (data) {
+          var text = (data && (data.reply || data.text)) || "";
+          if (!text) throw new Error("Empty reply from backend");
+          if (data && data.basket) syncBasket(data.basket);
+          // A completed order (basket cleared server-side) is worth celebrating.
+          if (data && data.order) celebrate();
+          // Actions already applied via the returned basket.
+          return { text: text, actions: [] };
+        });
+      },
+      function () {
+        // fetch itself failed (server unreachable) — fall back to the mock.
+        return localReply(message, history);
+      }
+    );
   }
 
   // Local mock path (deterministic; used offline and in tests).
@@ -796,6 +883,10 @@
         window.removeFromBasket(a.product);
       } else if (a.type === "clear" && typeof window.clearBasket === "function") {
         window.clearBasket();
+      } else if (a.type === "checkout") {
+        // Placing the order empties the basket (no real payment in this demo).
+        if (typeof window.clearBasket === "function") window.clearBasket();
+        celebrate();
       }
     });
     // Refresh the basket list if the shopper is currently on the basket page.

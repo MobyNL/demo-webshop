@@ -316,6 +316,96 @@ test("Pearcy shows the fallback when the real backend errors", async ({ page }) 
   });
 });
 
+test("Pearcy checks the shopper out through the chat", async ({ page }) => {
+  const input = () => page.getByRole("textbox", { name: "Type your message to Pearcy" });
+  const send = () => page.getByRole("button", { name: "Send message" });
+  const log = page.getByRole("log", { name: "Conversation with Pearcy" });
+
+  await test.step("Given the shopper has an item in the basket", async () => {
+    await page.goto("/");
+    await page.evaluate(() => localStorage.setItem("basket", JSON.stringify(["apple"])));
+    await page.getByRole("button", { name: AVATAR }).click();
+  });
+
+  await test.step("When the shopper asks to check out, Pearcy asks for a name", async () => {
+    await input().fill("I'd like to checkout");
+    await send().click();
+    await expect(log).toContainText("what name", { timeout: 5000 });
+  });
+
+  await test.step("When the shopper gives a name, Pearcy asks for an address", async () => {
+    await input().fill("Jamie");
+    await send().click();
+    await expect(log).toContainText("delivery address", { timeout: 5000 });
+  });
+
+  await test.step("When the shopper gives an address, Pearcy places the order", async () => {
+    await input().fill("10 Downing Street");
+    await send().click();
+    await expect(log).toContainText("Order placed", { timeout: 5000 });
+  });
+
+  await test.step("Then the basket has been emptied", async () => {
+    await page.goto("/basket.html");
+    await expect(page.getByRole("list", { name: "Shopping basket items" })).toHaveText(
+      "No products in basket."
+    );
+  });
+});
+
+test("Pearcy won't check out an empty basket", async ({ page }) => {
+  await test.step("Given the chat is open with an empty basket", async () => {
+    await page.goto("/");
+    await page.getByRole("button", { name: AVATAR }).click();
+  });
+
+  await test.step("When the shopper tries to check out", async () => {
+    await page.getByRole("textbox", { name: "Type your message to Pearcy" }).fill("checkout please");
+    await page.getByRole("button", { name: "Send message" }).click();
+  });
+
+  await test.step("Then Pearcy says the basket is empty", async () => {
+    await expect(
+      page.getByRole("log", { name: "Conversation with Pearcy" })
+    ).toContainText("empty", { timeout: 5000 });
+  });
+});
+
+test("Pearcy places an order via the backend and clears the basket", async ({ page }) => {
+  await test.step("Given the real backend confirms an order", async () => {
+    await page.goto("/");
+    await page.evaluate(() => {
+      localStorage.removeItem("pearcy:mock");
+      localStorage.setItem("basket", JSON.stringify(["apple", "lemon"]));
+    });
+    await page.route("**/api/chat", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ reply: "Order placed — thank you, Jamie! 🎉🍐", basket: [], order: true }),
+      });
+    });
+    await page.getByRole("button", { name: AVATAR }).click();
+  });
+
+  await test.step("When the shopper checks out", async () => {
+    await page
+      .getByRole("textbox", { name: "Type your message to Pearcy" })
+      .fill("check me out, I'm Jamie at 10 Downing Street");
+    await page.getByRole("button", { name: "Send message" }).click();
+    await expect(
+      page.getByRole("log", { name: "Conversation with Pearcy" })
+    ).toContainText("Order placed", { timeout: 5000 });
+  });
+
+  await test.step("Then the basket returned by the backend (empty) is synced", async () => {
+    await page.goto("/basket.html");
+    await expect(page.getByRole("list", { name: "Shopping basket items" })).toHaveText(
+      "No products in basket."
+    );
+  });
+});
+
 test("the avatar can be dismissed and restored", async ({ page }) => {
   await test.step("Given the shopper is on the homepage", async () => {
     await page.goto("/");

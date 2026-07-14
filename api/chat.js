@@ -23,7 +23,7 @@ const SYSTEM_PROMPT = [
   "Keep replies short: 1-3 sentences.",
   "The shop sells exactly three products: Apple 🍏 (crisp, classic), Banana 🍌 (energy boost), Lemon 🍋 (zesty). Never invent other products or prices.",
   "You can manage the shopper's basket using the provided tools (add, remove, clear). After changing the basket, confirm briefly what you did.",
-  "You cannot take payment or complete checkout yourself — if asked, point the shopper to the basket page's Checkout button.",
+  "You can place the shopper's order with the checkout tool once the basket is not empty and you have collected their full name and delivery address. If you don't have the name and address yet, ask for them first. This is a demo with no real payment, so just confirm the order warmly once it's placed.",
   "If a question is off-topic, gently steer back to fruit and how you can help them shop.",
 ].join(" ");
 
@@ -64,6 +64,22 @@ const TOOLS = [
       name: "clear_basket",
       description: "Remove everything from the shopper's basket.",
       parameters: { type: "object", properties: {} },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "checkout",
+      description:
+        "Place the shopper's order. Only call this when the basket is not empty and you already have the shopper's full name and delivery address.",
+      parameters: {
+        type: "object",
+        properties: {
+          name: { type: "string", description: "The shopper's full name for the order." },
+          address: { type: "string", description: "The shopper's delivery address." },
+        },
+        required: ["name", "address"],
+      },
     },
   },
 ];
@@ -118,6 +134,24 @@ function applyTool(toolCall, basket) {
     }
   } else if (name === "clear_basket") {
     next = [];
+  } else if (name === "checkout") {
+    if (!basket.length) {
+      return { basket: next, payload: { ok: false, error: "The basket is empty; nothing to check out." } };
+    }
+    var customer = String(args.name || "").trim();
+    var address = String(args.address || "").trim();
+    if (!customer || !address) {
+      return {
+        basket: next,
+        payload: { ok: false, error: "Need the shopper's full name and delivery address before checking out." },
+      };
+    }
+    next = [];
+    return {
+      basket: next,
+      payload: { ok: true, message: "Order placed successfully.", name: customer, address: address },
+      checkout: true,
+    };
   }
 
   return { basket: next, payload: { ok: true, basket: describeBasket(next) } };
@@ -198,6 +232,8 @@ module.exports = async function handler(req, res) {
   }
   messages.push({ role: "system", content: "The shopper's current basket is: " + describeBasket(basket) + "." });
 
+  var orderPlaced = false;
+
   try {
     for (var step = 0; step < MAX_TOOL_STEPS; step++) {
       var data = await callMistral(apiKey, messages);
@@ -208,7 +244,7 @@ module.exports = async function handler(req, res) {
       var toolCalls = msg.tool_calls || [];
       if (!toolCalls.length) {
         var reply = stripHtml(msg.content) || "Happy to help! 🍐";
-        res.status(200).json({ reply: reply, basket: basket });
+        res.status(200).json({ reply: reply, basket: basket, order: orderPlaced });
         return;
       }
 
@@ -217,6 +253,7 @@ module.exports = async function handler(req, res) {
       for (var t = 0; t < toolCalls.length; t++) {
         var result = applyTool(toolCalls[t], basket);
         basket = result.basket;
+        if (result.checkout) orderPlaced = true;
         messages.push({
           role: "tool",
           name: toolCalls[t].function && toolCalls[t].function.name,
@@ -226,7 +263,7 @@ module.exports = async function handler(req, res) {
       }
     }
     // Ran out of tool steps — return what we have.
-    res.status(200).json({ reply: "There you go! Anything else? 🍐", basket: basket });
+    res.status(200).json({ reply: "There you go! Anything else? 🍐", basket: basket, order: orderPlaced });
   } catch (err) {
     res.status(502).json({ error: "Upstream error", detail: String((err && err.message) || err) });
   }
