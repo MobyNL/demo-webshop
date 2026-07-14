@@ -4,7 +4,12 @@ const AVATAR = "Chat with Pearcy, the shopping assistant";
 
 test.beforeEach(async ({ page }) => {
   await page.goto("/");
-  await page.evaluate(() => localStorage.clear());
+  await page.evaluate(() => {
+    localStorage.clear();
+    // Use the deterministic local engine by default so tests don't hit the
+    // real Mistral backend. Real-backend tests below opt out and stub /api/chat.
+    localStorage.setItem("pearcy:mock", "1");
+  });
 });
 
 test("Pearcy avatar is present on every storefront page", async ({ page }) => {
@@ -228,6 +233,86 @@ test("Pearcy declines to remove an item that isn't in the basket", async ({ page
     await expect(
       page.getByRole("log", { name: "Conversation with Pearcy" })
     ).toContainText("don't see any", { timeout: 5000 });
+  });
+});
+
+test("Pearcy returns a real reply from the Mistral-backed endpoint", async ({ page }) => {
+  let requestBody: { message?: string; basket?: string[] } = {};
+
+  await test.step("Given the real backend is used and stubbed", async () => {
+    await page.goto("/");
+    await page.evaluate(() => localStorage.removeItem("pearcy:mock"));
+    await page.route("**/api/chat", async (route) => {
+      requestBody = route.request().postDataJSON();
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ reply: "My favourite is the zesty lemon! 🍋🍐", basket: [] }),
+      });
+    });
+    await page.getByRole("button", { name: AVATAR }).click();
+  });
+
+  await test.step("When the shopper asks an open-ended question", async () => {
+    await page.getByRole("textbox", { name: "Type your message to Pearcy" }).fill("What's your favourite fruit?");
+    await page.getByRole("button", { name: "Send message" }).click();
+  });
+
+  await test.step("Then the backend reply is shown and the message was sent to /api/chat", async () => {
+    await expect(
+      page.getByRole("log", { name: "Conversation with Pearcy" })
+    ).toContainText("zesty lemon", { timeout: 5000 });
+    expect(requestBody.message).toBe("What's your favourite fruit?");
+  });
+});
+
+test("Pearcy syncs the basket returned by the backend tool loop", async ({ page }) => {
+  await test.step("Given the backend responds with a basket change", async () => {
+    await page.goto("/");
+    await page.evaluate(() => localStorage.removeItem("pearcy:mock"));
+    await page.route("**/api/chat", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ reply: "Popped an apple in for you! 🍏🍐", basket: ["apple"] }),
+      });
+    });
+    await page.getByRole("button", { name: AVATAR }).click();
+  });
+
+  await test.step("When the shopper asks Pearcy to add an apple", async () => {
+    await page.getByRole("textbox", { name: "Type your message to Pearcy" }).fill("add an apple");
+    await page.getByRole("button", { name: "Send message" }).click();
+    await expect(
+      page.getByRole("log", { name: "Conversation with Pearcy" })
+    ).toContainText("Popped an apple", { timeout: 5000 });
+  });
+
+  await test.step("Then the basket reflects the backend's result", async () => {
+    await page.goto("/basket.html");
+    await expect(page.getByRole("list", { name: "Shopping basket items" })).toContainText("Apple");
+  });
+});
+
+test("Pearcy shows the fallback when the real backend errors", async ({ page }) => {
+  await test.step("Given the backend returns an error", async () => {
+    await page.goto("/");
+    await page.evaluate(() => localStorage.removeItem("pearcy:mock"));
+    await page.route("**/api/chat", async (route) => {
+      await route.fulfill({ status: 502, contentType: "application/json", body: JSON.stringify({ error: "upstream" }) });
+    });
+    await page.getByRole("button", { name: AVATAR }).click();
+  });
+
+  await test.step("When the shopper sends a message", async () => {
+    await page.getByRole("textbox", { name: "Type your message to Pearcy" }).fill("hello there");
+    await page.getByRole("button", { name: "Send message" }).click();
+  });
+
+  await test.step("Then a friendly fallback message is shown", async () => {
+    await expect(
+      page.getByRole("log", { name: "Conversation with Pearcy" })
+    ).toContainText("offline", { timeout: 5000 });
   });
 });
 

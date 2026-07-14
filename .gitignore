@@ -1,4 +1,8 @@
 .DS_Store
+.env
+.env.local
+.env.*.local
+.vercel
 ai-evidence/
 .playwright-cli/
 node_modules/

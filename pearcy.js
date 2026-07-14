@@ -18,6 +18,7 @@
     tipsOff: "pearcy:tips-off", // user opted out of proactive tips
     hidden: "pearcy:hidden", // user dismissed the avatar
     offline: "pearcy:offline", // force the offline fallback (used by tests)
+    mock: "pearcy:mock", // use the local mock instead of the real backend
   };
 
   var HISTORY_LIMIT = 50; // cap stored turns so localStorage stays small
@@ -419,22 +420,64 @@
   }
 
   // ---------------------------------------------------------------------------
-  // Swappable transport. Default is the mock; replace `Pearcy.sendMessage` to
-  // wire in a real backend. Rejects when offline so the UI shows a fallback.
+  // Swappable transport.
+  //
+  // Production talks to the Mistral-backed serverless endpoint (`/api/chat`),
+  // which runs the whole tool-calling loop server-side (so the API key never
+  // reaches the browser) and returns { reply, basket }. The client just syncs
+  // its basket to the authoritative result.
+  //
+  // A local mock is kept for offline dev and deterministic tests, toggled with
+  // the `pearcy:mock` flag. Replace `window.Pearcy.sendMessage` to swap the
+  // whole transport.
   // ---------------------------------------------------------------------------
+
+  var API_ENDPOINT = "/api/chat";
 
   function randomThinkTime() {
     // Deterministic-ish jitter without Math.random dependency concerns.
     return THINK_MIN_MS + Math.floor((THINK_MAX_MS - THINK_MIN_MS) * 0.6);
   }
 
-  function defaultSendMessage(message, history) {
+  // Replace the browser's basket with the authoritative one from the server,
+  // keep the header/basket page in sync, and celebrate if it grew.
+  function syncBasket(nextBasket) {
+    if (!Array.isArray(nextBasket)) return;
+    var grew = nextBasket.length > currentBasket().length;
+    try {
+      localStorage.setItem("basket", JSON.stringify(nextBasket));
+    } catch (e) {
+      /* storage may be unavailable */
+    }
+    if (typeof window.renderBasketIndicator === "function") window.renderBasketIndicator();
+    if (typeof window.renderBasket === "function") window.renderBasket();
+    if (grew) celebrate();
+  }
+
+  // Real LLM path. One fetch — the tool loop lives on the server.
+  function apiReply(message, history) {
+    return fetch(API_ENDPOINT, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message: message, history: history, basket: currentBasket() }),
+    })
+      .then(function (res) {
+        if (!res.ok) throw new Error("Pearcy backend error " + res.status);
+        return res.json();
+      })
+      .then(function (data) {
+        var text = (data && (data.reply || data.text)) || "";
+        if (!text) throw new Error("Empty reply from backend");
+        if (data && data.basket) syncBasket(data.basket);
+        // Actions already applied via the returned basket.
+        return { text: text, actions: [] };
+      });
+  }
+
+  // Local mock path (deterministic; used offline and in tests).
+  function localReply(message, history) {
     return new Promise(function (resolve, reject) {
       setTimeout(function () {
-        if (flag(STORAGE.offline)) {
-          reject(new Error("Pearcy backend unavailable"));
-          return;
-        }
         try {
           resolve(mockRespond(message, history));
         } catch (e) {
@@ -442,6 +485,23 @@
         }
       }, randomThinkTime());
     });
+  }
+
+  function defaultSendMessage(message, history) {
+    // Simulated outage — explicit kill switch, also used by tests.
+    if (flag(STORAGE.offline)) {
+      return new Promise(function (_, reject) {
+        setTimeout(function () {
+          reject(new Error("Pearcy backend unavailable"));
+        }, randomThinkTime());
+      });
+    }
+    // Offline/local mock mode (no backend, or forced by tests).
+    if (flag(STORAGE.mock)) {
+      return localReply(message, history);
+    }
+    // Real, Mistral-backed responses.
+    return apiReply(message, history);
   }
 
   // ---------------------------------------------------------------------------
@@ -777,11 +837,13 @@
         // Transport may return a plain string or a { text, actions } object.
         var reply = typeof result === "string" ? result : (result && result.text) || "";
         var actions = (result && result.actions) || [];
-        var didAdd = executeActions(actions);
+        executeActions(actions); // mock-mode actions; no-op on the real path
         appendMessage("pearcy", reply, true);
         pushHistory("pearcy", reply);
-        // Let the celebrate animation play if we just added something.
-        if (!didAdd) setAvatarState("idle");
+        // Return to idle unless a basket-add just kicked off the celebrate state.
+        if (!el.avatar.classList.contains("pearcy-avatar--celebrating")) {
+          setAvatarState("idle");
+        }
       })
       .catch(function () {
         // Graceful fallback when the backend is unavailable.
