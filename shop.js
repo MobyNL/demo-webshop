@@ -26,6 +26,15 @@ function clearBasket() {
   localStorage.removeItem("basket");
 }
 
+function removeFromBasket(product) {
+  const basket = getBasket();
+  const index = basket.indexOf(product);
+  if (index === -1) return false;
+  basket.splice(index, 1);
+  localStorage.setItem("basket", JSON.stringify(basket));
+  return true;
+}
+
 function renderBasket() {
   const basket = getBasket();
   const basketList = document.getElementById("basketList");
@@ -83,4 +92,10 @@ const origClearBasket = window.clearBasket;
 window.clearBasket = function () {
   origClearBasket();
   renderBasketIndicator();
+};
+const origRemoveFromBasket = window.removeFromBasket;
+window.removeFromBasket = function (product) {
+  const result = origRemoveFromBasket(product);
+  renderBasketIndicator();
+  return result;
 };

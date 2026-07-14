@@ -45,7 +45,7 @@
   height: 68px;
   border-radius: 50%;
   border: 3px solid #4e7c2f;
-  background: radial-gradient(circle at 35% 30%, #d9f28a 0%, #a7d84f 55%, #8bc34a 100%);
+  background: radial-gradient(circle at 35% 30%, #fffbe9 0%, #fdf3c8 100%);
   box-shadow: 0 6px 18px rgba(76, 124, 47, 0.35);
   cursor: pointer;
   padding: 0;
@@ -53,6 +53,7 @@
   align-items: center;
   justify-content: center;
   transition: transform 0.18s ease, box-shadow 0.18s ease;
+  overflow: hidden;
 }
 
 .pearcy-avatar:hover {
@@ -66,10 +67,64 @@
 }
 
 .pearcy-avatar__face {
-  font-size: 2.4rem;
-  line-height: 1;
-  display: block;
+  width: 86%;
+  height: 86%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   pointer-events: none;
+}
+
+.pearcy-svg {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+/* Pear parts */
+.pearcy-body {
+  fill: url(#pearcyBody);
+  stroke: #6b9e33;
+  stroke-width: 2;
+}
+
+.pearcy-stem {
+  fill: #8a5a2b;
+}
+
+.pearcy-leaf {
+  fill: #7cc242;
+  stroke: #5a9a2e;
+  stroke-width: 1;
+}
+
+.pearcy-eye-white {
+  fill: #fff;
+  stroke: #3a5c22;
+  stroke-width: 1;
+}
+
+.pearcy-pupil {
+  fill: #2b2b2b;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.pearcy-brow {
+  fill: none;
+  stroke: #4e7c2f;
+  stroke-width: 3.2;
+  stroke-linecap: round;
+  transform-box: fill-box;
+  transform-origin: center;
+  transition: transform 0.25s ease;
+}
+
+.pearcy-mouth {
+  fill: none;
+  stroke: #4e7c2f;
+  stroke-width: 2.6;
+  stroke-linecap: round;
 }
 
 .pearcy-avatar__dismiss {
@@ -403,6 +458,49 @@
   animation: pearcy-celebrate 0.6s ease-in-out 2;
 }
 
+/* Googly pupils — always jiggling a little; wilder while thinking, orbiting
+   while celebrating. The two pupils use different timings so they wobble
+   independently, like real googly eyes. */
+.pearcy-pupil--l {
+  animation: pearcy-googly-l 2.4s ease-in-out infinite;
+}
+.pearcy-pupil--r {
+  animation: pearcy-googly-r 2.9s ease-in-out infinite;
+}
+
+.pearcy-avatar--thinking .pearcy-pupil--l {
+  animation: pearcy-googly-l 0.7s ease-in-out infinite;
+}
+.pearcy-avatar--thinking .pearcy-pupil--r {
+  animation: pearcy-googly-r 0.85s ease-in-out infinite;
+}
+
+.pearcy-avatar--celebrating .pearcy-pupil {
+  animation: pearcy-googly-spin 0.5s linear infinite;
+}
+
+/* Eyebrows — furrow in concentration while thinking, shoot up when celebrating,
+   and give a friendly raise on hover/focus. */
+.pearcy-avatar--thinking .pearcy-brow--l {
+  transform: translateY(1px) rotate(11deg);
+}
+.pearcy-avatar--thinking .pearcy-brow--r {
+  transform: translateY(1px) rotate(-11deg);
+}
+
+.pearcy-avatar--celebrating .pearcy-brow {
+  transform: translateY(-2.5px);
+}
+
+.pearcy-avatar:hover .pearcy-brow--l,
+.pearcy-avatar:focus-visible .pearcy-brow--l {
+  transform: translateY(-1.5px) rotate(-6deg);
+}
+.pearcy-avatar:hover .pearcy-brow--r,
+.pearcy-avatar:focus-visible .pearcy-brow--r {
+  transform: translateY(-1.5px) rotate(6deg);
+}
+
 @keyframes pearcy-bob {
   0%, 100% { transform: translateY(0); }
   50% { transform: translateY(-4px); }
@@ -428,6 +526,26 @@
 @keyframes pearcy-pop {
   0% { transform: scale(0.85) translateY(8px); opacity: 0; }
   100% { transform: scale(1) translateY(0); opacity: 1; }
+}
+
+@keyframes pearcy-googly-l {
+  0%, 100% { transform: translate(0.6px, 1px); }
+  25% { transform: translate(-1.2px, -0.6px); }
+  50% { transform: translate(1px, 1.3px); }
+  75% { transform: translate(-0.8px, 0.7px); }
+}
+
+@keyframes pearcy-googly-r {
+  0%, 100% { transform: translate(-0.8px, 1.1px); }
+  30% { transform: translate(1.2px, -0.5px); }
+  55% { transform: translate(-1px, 1px); }
+  80% { transform: translate(0.9px, 0.8px); }
+}
+
+/* Orbit for the celebratory spin: rotate a translated pupil around its centre. */
+@keyframes pearcy-googly-spin {
+  from { transform: rotate(0deg) translateX(1.6px); }
+  to { transform: rotate(360deg) translateX(1.6px); }
 }
 
 /* --- Responsive: full-width panel on small screens ------------------------- */
@@ -462,13 +580,15 @@
   .pearcy-avatar__face,
   .pearcy-typing__dot,
   .pearcy-panel,
-  .pearcy-tip {
+  .pearcy-tip,
+  .pearcy-pupil {
     animation: none !important;
   }
 
   .pearcy-avatar,
   .pearcy-restore,
-  .pearcy-panel__send {
+  .pearcy-panel__send,
+  .pearcy-brow {
     transition: none;
   }
 }

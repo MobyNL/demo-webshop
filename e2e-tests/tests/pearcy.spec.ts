@@ -149,6 +149,88 @@ test("proactive tip can be dismissed and opted out of", async ({ page }) => {
   });
 });
 
+test("Pearcy adds an item to the basket on request", async ({ page }) => {
+  await test.step("Given the chat is open with an empty basket", async () => {
+    await page.goto("/");
+    await page.getByRole("button", { name: AVATAR }).click();
+  });
+
+  await test.step("When the shopper asks Pearcy to add an apple", async () => {
+    await page.getByRole("textbox", { name: "Type your message to Pearcy" }).fill("Please add an apple");
+    await page.getByRole("button", { name: "Send message" }).click();
+    await expect(
+      page.getByRole("log", { name: "Conversation with Pearcy" })
+    ).toContainText("added", { timeout: 5000 });
+  });
+
+  await test.step("Then the apple is in the basket", async () => {
+    await page.goto("/basket.html");
+    await expect(page.getByRole("list", { name: "Shopping basket items" })).toContainText("Apple");
+  });
+});
+
+test("Pearcy adds several of an item at once", async ({ page }) => {
+  await test.step("Given the chat is open", async () => {
+    await page.goto("/");
+    await page.getByRole("button", { name: AVATAR }).click();
+  });
+
+  await test.step("When the shopper asks for two lemons", async () => {
+    await page.getByRole("textbox", { name: "Type your message to Pearcy" }).fill("add two lemons");
+    await page.getByRole("button", { name: "Send message" }).click();
+    await expect(
+      page.getByRole("log", { name: "Conversation with Pearcy" })
+    ).toContainText("×2", { timeout: 5000 });
+  });
+
+  await test.step("Then two lemons are in the basket", async () => {
+    await page.goto("/basket.html");
+    const items = page.getByRole("list", { name: "Shopping basket items" }).getByRole("listitem");
+    await expect(items.filter({ hasText: "Lemon" })).toHaveCount(2);
+  });
+});
+
+test("Pearcy removes an item from the basket on request", async ({ page }) => {
+  await test.step("Given the shopper already has an apple in the basket", async () => {
+    await page.goto("/");
+    await page.evaluate(() => localStorage.setItem("basket", JSON.stringify(["apple"])));
+    await page.getByRole("button", { name: AVATAR }).click();
+  });
+
+  await test.step("When the shopper asks Pearcy to remove the apple", async () => {
+    await page.getByRole("textbox", { name: "Type your message to Pearcy" }).fill("remove the apple");
+    await page.getByRole("button", { name: "Send message" }).click();
+    await expect(
+      page.getByRole("log", { name: "Conversation with Pearcy" })
+    ).toContainText("taken", { timeout: 5000 });
+  });
+
+  await test.step("Then the basket is empty", async () => {
+    await page.goto("/basket.html");
+    await expect(page.getByRole("list", { name: "Shopping basket items" })).toHaveText(
+      "No products in basket."
+    );
+  });
+});
+
+test("Pearcy declines to remove an item that isn't in the basket", async ({ page }) => {
+  await test.step("Given the chat is open with an empty basket", async () => {
+    await page.goto("/");
+    await page.getByRole("button", { name: AVATAR }).click();
+  });
+
+  await test.step("When the shopper asks to remove a banana that isn't there", async () => {
+    await page.getByRole("textbox", { name: "Type your message to Pearcy" }).fill("remove the banana");
+    await page.getByRole("button", { name: "Send message" }).click();
+  });
+
+  await test.step("Then Pearcy says there's nothing to remove", async () => {
+    await expect(
+      page.getByRole("log", { name: "Conversation with Pearcy" })
+    ).toContainText("don't see any", { timeout: 5000 });
+  });
+});
+
 test("the avatar can be dismissed and restored", async ({ page }) => {
   await test.step("Given the shopper is on the homepage", async () => {
     await page.goto("/");

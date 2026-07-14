@@ -50,6 +50,35 @@
     },
   };
 
+  // Pearcy's face, drawn as inline SVG so we can animate the googly eyes and
+  // eyebrows (an emoji can't express). Static, trusted markup.
+  var PEAR_SVG =
+    '<svg class="pearcy-svg" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false">' +
+    '<defs>' +
+    '<radialGradient id="pearcyBody" cx="38%" cy="30%" r="75%">' +
+    '<stop offset="0%" stop-color="#d9f28a"/>' +
+    '<stop offset="55%" stop-color="#a7d84f"/>' +
+    '<stop offset="100%" stop-color="#8bc34a"/>' +
+    "</radialGradient>" +
+    "</defs>" +
+    // stem + leaf
+    '<rect class="pearcy-stem" x="47" y="7" width="5" height="13" rx="2.5" transform="rotate(-8 49.5 13.5)"/>' +
+    '<ellipse class="pearcy-leaf" cx="61" cy="14" rx="8" ry="4" transform="rotate(-25 61 14)"/>' +
+    // body: belly + head
+    '<ellipse class="pearcy-body" cx="50" cy="64" rx="27" ry="29"/>' +
+    '<ellipse class="pearcy-body" cx="50" cy="38" rx="19" ry="20"/>' +
+    // eyebrows
+    '<path class="pearcy-brow pearcy-brow--l" d="M33 26 Q40.5 21 48 26"/>' +
+    '<path class="pearcy-brow pearcy-brow--r" d="M52 26 Q59.5 21 67 26"/>' +
+    // googly eyes (white + jiggling pupils)
+    '<circle class="pearcy-eye-white" cx="40" cy="41" r="8.5"/>' +
+    '<circle class="pearcy-eye-white" cx="60" cy="41" r="8.5"/>' +
+    '<circle class="pearcy-pupil pearcy-pupil--l" cx="40" cy="41" r="3.8"/>' +
+    '<circle class="pearcy-pupil pearcy-pupil--r" cx="60" cy="41" r="3.8"/>' +
+    // little smile
+    '<path class="pearcy-mouth" d="M43 54 Q50 60 57 54"/>' +
+    "</svg>";
+
   var TIPS = [
     "Looking for a gift? I've got some ap-peel-ing ideas 🍐",
     "Psst — not sure what to pick? Ask me for a pear-sonalized recommendation!",
@@ -182,6 +211,7 @@
         "Happy to help! I can:<br>" +
         "• Suggest a pear-fect pick 🍐<br>" +
         "• Tell you about a fruit (try \"tell me about the lemon\")<br>" +
+        "• Add or remove items for you (try \"add a banana\" or \"remove the apple\")<br>" +
         "• Show you your basket or the way to checkout<br>" +
         "Just type away!"
       );
@@ -204,7 +234,8 @@
       if (basket.length === 0) {
         return (
           "Your basket's looking a little bare — let's fix that! Browse the " +
-          listAllProducts() + ", or ask me for a recommendation. 🍐"
+          listAllProducts() + ", ask me for a recommendation, or just say " +
+          '"add a lemon" and I\'ll pop it in for you. 🍐'
         );
       }
       var names = basket
@@ -270,6 +301,124 @@
   }
 
   // ---------------------------------------------------------------------------
+  // Action layer
+  //
+  // Detects when the shopper asks Pearcy to change the basket. Mirrors how a
+  // real LLM would return tool calls: the reply is a { text, actions } object,
+  // and the UI executes the actions. Returns null when there's no basket
+  // command, so we fall through to the conversational engine above.
+  // ---------------------------------------------------------------------------
+
+  // How many of a fruit the command refers to (defaults to 1).
+  function parseCount(text) {
+    var m = text.match(/\b(\d+)\b/);
+    if (m) {
+      var n = parseInt(m[1], 10);
+      return Math.max(1, Math.min(9, isNaN(n) ? 1 : n));
+    }
+    var words = { two: 2, three: 3, four: 4, five: 5, six: 6 };
+    var tokens = text.split(/\s+/);
+    for (var i = 0; i < tokens.length; i++) {
+      if (words[tokens[i]] != null) return words[tokens[i]];
+    }
+    return 1;
+  }
+
+  function countInBasket(product) {
+    return currentBasket().filter(function (x) {
+      return x === product;
+    }).length;
+  }
+
+  function repeat(action, n) {
+    var out = [];
+    for (var i = 0; i < n; i++) out.push(action);
+    return out;
+  }
+
+  function detectBasketAction(text) {
+    var product = detectProduct(text);
+    var count = parseCount(text);
+    var wantsAll = has(text, "everything", "all");
+
+    var isRemove =
+      has(text, "remove", "delete", "take out", "get rid", "discard") ||
+      has(text, "don't want", "dont want", "do not want");
+    var isClear =
+      (has(text, "empty", "clear") && has(text, "basket", "cart")) ||
+      (isRemove && wantsAll && !product);
+
+    if (isClear) {
+      if (currentBasket().length === 0) {
+        return { text: "Your basket's already empty — nothing to clear! 🍐", actions: [] };
+      }
+      return {
+        text: "All cleared! Your basket is squeaky-clean again. 🍐",
+        actions: [{ type: "clear" }],
+      };
+    }
+
+    if (isRemove) {
+      if (!product) {
+        return {
+          text:
+            "Sure thing! Which fruit should I remove — " + listAllProducts() +
+            ' — or say "empty my basket" to clear it all? 🍐',
+          actions: [],
+        };
+      }
+      var p = CATALOG[product];
+      var present = countInBasket(product);
+      if (present === 0) {
+        return {
+          text: "Hmm, I don't see any " + p.emoji + " " + p.name + " in your basket to remove. 🍐",
+          actions: [],
+        };
+      }
+      var removeN = Math.min(count, present);
+      return {
+        text:
+          "Done! I've taken " + removeN + " " + p.name + " " + p.emoji +
+          ' out of your basket. Anything else? <a href="basket.html">View basket</a> 🍐',
+        actions: repeat({ type: "remove", product: product }, removeN),
+      };
+    }
+
+    var isAdd =
+      has(text, "add", "put", "grab", "get me", "give me", "throw in", "i want", "i'd like", "toss in") &&
+      !has(text, "don't", "dont", "do not");
+    if (isAdd) {
+      if (!product) {
+        return {
+          text:
+            "Happy to help you stock up! Which fruit would you like — " +
+            listAllProducts() + "? 🍐",
+          actions: [],
+        };
+      }
+      var pa = CATALOG[product];
+      var suffix = count > 1 ? " (×" + count + ")" : "";
+      return {
+        text:
+          "Ap-peel-ing choice! I've added " + pa.emoji + " " + pa.name + suffix +
+          ' to your basket. 🍐 <a href="basket.html">View basket</a>',
+        actions: repeat({ type: "add", product: product }, count),
+      };
+    }
+
+    return null;
+  }
+
+  // Full response: a basket action if one was requested, otherwise a chat reply.
+  // Always returns { text, actions } so the UI has a single shape to handle.
+  function mockRespond(message, history) {
+    var text = String(message || "").toLowerCase();
+    var action = detectBasketAction(text);
+    if (action) return action;
+    return { text: mockReply(message, history), actions: [] };
+  }
+
+  // ---------------------------------------------------------------------------
   // Swappable transport. Default is the mock; replace `Pearcy.sendMessage` to
   // wire in a real backend. Rejects when offline so the UI shows a fallback.
   // ---------------------------------------------------------------------------
@@ -287,7 +436,7 @@
           return;
         }
         try {
-          resolve(mockReply(message, history));
+          resolve(mockRespond(message, history));
         } catch (e) {
           reject(e);
         }
@@ -349,7 +498,7 @@
       "aria-expanded": "false",
       "aria-controls": "pearcy-panel",
     });
-    avatar.appendChild(h("span", { class: "pearcy-avatar__face", "aria-hidden": "true" }, "🍐"));
+    avatar.appendChild(h("span", { class: "pearcy-avatar__face", "aria-hidden": "true" }, PEAR_SVG));
 
     var dismiss = h(
       "button",
@@ -574,6 +723,26 @@
 
   var pending = false;
 
+  // Carry out any basket actions Pearcy decided on. Goes through shop.js's
+  // globals so the header indicator (and the basket page, if open) stay in sync.
+  function executeActions(actions) {
+    if (!actions || !actions.length) return false;
+    var didAdd = false;
+    actions.forEach(function (a) {
+      if (a.type === "add" && a.product && typeof window.addToBasket === "function") {
+        window.addToBasket(a.product);
+        didAdd = true;
+      } else if (a.type === "remove" && a.product && typeof window.removeFromBasket === "function") {
+        window.removeFromBasket(a.product);
+      } else if (a.type === "clear" && typeof window.clearBasket === "function") {
+        window.clearBasket();
+      }
+    });
+    // Refresh the basket list if the shopper is currently on the basket page.
+    if (typeof window.renderBasket === "function") window.renderBasket();
+    return didAdd;
+  }
+
   function showTyping(on) {
     el.typing.hidden = !on;
     if (on) {
@@ -603,11 +772,16 @@
       .then(function () {
         return transport(value, history);
       })
-      .then(function (reply) {
+      .then(function (result) {
         showTyping(false);
+        // Transport may return a plain string or a { text, actions } object.
+        var reply = typeof result === "string" ? result : (result && result.text) || "";
+        var actions = (result && result.actions) || [];
+        var didAdd = executeActions(actions);
         appendMessage("pearcy", reply, true);
         pushHistory("pearcy", reply);
-        setAvatarState("idle");
+        // Let the celebrate animation play if we just added something.
+        if (!didAdd) setAvatarState("idle");
       })
       .catch(function () {
         // Graceful fallback when the backend is unavailable.
@@ -720,6 +894,7 @@
     close: closePanel,
     celebrate: celebrate,
     _mockReply: mockReply, // exposed for testing
+    _mockRespond: mockRespond, // exposed for testing
   };
   // Use the mock unless a caller overrides it.
   window.Pearcy.sendMessage = defaultSendMessage;
